@@ -1,7 +1,17 @@
+import sys
+import os
 import numpy as np
+from robot import Robot
 from space import Space
 from action_space import ActionSpace
 from observation_space import ObservationSpace
+
+def getObservation(robot, token):
+    pos = robot.position
+    observation = np.zeros((84,84,3), dtype=np.uint8)
+    observation[pos[0]+42][pos[1]+42] = [255, 255, 255] # robot
+    observation[token[0]+42][token[1]+42] = [100, 100, 100] # token
+    return observation
 
 class Env(object):
     """The abstract environment class that is used by all agents. This class has the exact
@@ -9,7 +19,13 @@ class Env(object):
     OpenAI Gym implementation, this class only defines the abstract methods without any actual
     implementation.
     """
-    reward_range = (-np.inf, np.inf)
+    def __init__(self):
+        self.robot = Robot((84, 84))
+        self.token = np.array([14, -5, 0])
+        self.previousAction = 0
+        self.iteration = 0
+
+    reward_range = (-1, 1)
     action_space = ActionSpace()
     observation_space = ObservationSpace()
 
@@ -24,7 +40,28 @@ class Env(object):
             done (boolean): whether the episode has ended, in which case further step() calls will return undefined results
             info (dict): contains auxiliary diagnostic information (helpful for debugging, and sometimes learning)
         """
-        return np.zeros((84,84,3), dtype=np.uint8), 1, True, {'note':'test'}
+        self.previousAction = action
+        pos1 = self.robot.position
+        self.robot.executeAction(action)
+        pos2 = self.robot.position + self.robot.direction
+
+        self.iteration += 1
+        isDone = self.iteration > 50 or np.array_equal(self.robot.position, self.token)
+
+        reward = 0
+        if self.iteration > 50:
+            reward = -1
+        elif isDone == True:
+            reward = 1
+        elif (np.linalg.norm(self.token - pos1) > np.linalg.norm(self.token - pos2)):
+            reward = 0.25
+        else:
+            reward = -0.25
+
+        self.robot.update()
+
+        observation = getObservation(self.robot, self.token)
+        return observation, reward, isDone, {'info':'test'}
 
     def reset(self):
         """
@@ -32,6 +69,8 @@ class Env(object):
         Returns:
             observation (object): the initial observation of the space. (Initial reward is assumed to be 0.)
         """
+        self.robot.reset()
+        self.iteration = 0
         return np.zeros((84,84,3), dtype=np.uint8)
 
     def render(self, mode='human', close=False):
@@ -55,7 +94,12 @@ class Env(object):
             mode (str): the mode to render with
             close (bool): close all open renderings
         """
-        return 1
+        text = str(self.iteration) + " "
+        text += "Robot: " + str(self.robot.position) + "; "
+        text += "Token " + str(self.token) + "; "
+        text += "Action " + str(self.previousAction) + ";"
+        sys.stdout.write('\r' + str(text) + ' ' * 20)
+        sys.stdout.flush()
 
     def close(self):
         """Override in your subclass to perform any necessary cleanup.
@@ -77,7 +121,7 @@ class Env(object):
               'seed'. Often, the main seed equals the provided 'seed', but
               this won't be true if seed=None, for example.
         """
-        return 1
+        return [1]
 
     def configure(self, *args, **kwargs):
         """Provides runtime configuration to the environment.
